@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>NavSatFix Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+  <style>
+    html, body, #map { height: 100%; margin: 0; padding: 0; }
+
+    .distance-label {
+      background: white;
+      border: none;
+      box-shadow: none;
+      font-size: 14px;
+      color: #080101;
+      text-align: center;
+    }
+
+    .total-distance {
+      background: white;
+      font-weight: bold;
+      padding: 6px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+    }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qwebchannel@1.0.0/qwebchannel.js"></script>
+
+  <script>
+    let markers = [];
+    let pathPoints = [];
+    let totalDistance = 0;
+    let firstMarkerAdded = false;
+
+    const satelliteLayer = L.tileLayer(
+      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+        attribution: '© Esri, DigitalGlobe',
+        maxZoom: 22,
+        maxNativeZoom: 17
+      }
+    );
+
+    const map = L.map('map', {
+      center: [0, 0],
+      zoom: 2,
+      layers: [satelliteLayer]
+    });
+
+    // Total distance display
+    const distanceDiv = L.control({ position: 'bottomleft' });
+    distanceDiv.onAdd = function () {
+      this._div = L.DomUtil.create('div', 'total-distance');
+      this._div.innerHTML = "Total: 0.0 m";
+      return this._div;
+    };
+    distanceDiv.update = function (val) {
+      this._div.innerHTML = "Total: " + val.toFixed(1) + " m";
+    };
+    distanceDiv.addTo(map);
+    distanceDiv.update(0.0);
+
+    // Click to add point + line
+    map.on('click', function (e) {
+      const latlng = e.latlng;
+
+      const marker = L.circleMarker(latlng, {
+        radius: 5,
+        color: '#080101',
+        fillColor: '#080101',
+        fillOpacity: 1
+      }).addTo(map);
+      markers.push(marker);
+      pathPoints.push(latlng);
+
+      if (pathPoints.length >= 2) {
+        const last = pathPoints[pathPoints.length - 2];
+        const curr = pathPoints[pathPoints.length - 1];
+
+        const dist = map.distance(last, curr);
+        totalDistance += dist;
+        distanceDiv.update(totalDistance);
+
+        // Draw line
+        const line = L.polyline([last, curr], {
+          color: '#080101',
+          weight: 1
+        }).addTo(map);
+
+        // Label
+        const midLat = (last.lat + curr.lat) / 2;
+        const midLng = (last.lng + curr.lng) / 2;
+        const label = L.divIcon({
+          className: 'distance-label',
+          html: `${dist.toFixed(1)} m`
+        });
+        L.marker([midLat, midLng], {
+          icon: label,
+          interactive: false
+        }).addTo(map);
+      }
+
+      if (!firstMarkerAdded) {
+        map.setView(latlng, 16);
+        firstMarkerAdded = true;
+      }
+    });
+    function addMarker(topic, lat, lon) {
+      const marker = L.circleMarker([lat, lon], {
+        radius: 4,
+        color: 'blue',
+        fillColor: 'blue',
+        fillOpacity: 0.9
+      }).addTo(map).bindPopup(topic);
+      markers.push(marker);
+
+      if (!firstMarkerAdded) {
+        map.setView([lat, lon], 16);
+        firstMarkerAdded = true;
+      }
+    }
+
+    // Clear all markers + lines
+    function clearMap() {
+      markers.forEach(m => map.removeLayer(m));
+      pathPoints = [];
+      markers = [];
+      totalDistance = 0;
+      distanceDiv.update(0.0);
+      firstMarkerAdded = true;
+
+      map.eachLayer(layer => {
+        if (layer !== satelliteLayer && (layer instanceof L.Polyline || layer instanceof L.Marker)) {
+          map.removeLayer(layer);
+        }
+      });
+    }
+
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+      window.pyjs = channel.objects.pyjs;
+    });
+  </script>
+</body>
+</html>
